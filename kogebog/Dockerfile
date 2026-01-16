@@ -1,6 +1,7 @@
 FROM php:8.2-apache
 
-RUN docker-php-ext-install pdo pdo_mysql
+# PDO + MySQL er allerede installeret i dette billede
+# Ingen kompilering nødvendig
 
 COPY backend /var/www/backend
 COPY frontend /var/www/html
