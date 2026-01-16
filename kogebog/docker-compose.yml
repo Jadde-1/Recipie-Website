@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   db:
     image: mariadb:11
@@ -15,14 +13,13 @@ services:
       - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
 
   php:
-    image: php:8.2-apache
+    build:
+      context: https://github.com/Jadde-1/Recipie-Website.git
+      dockerfile: kogebog/Dockerfile
     container_name: kogebog-php
     restart: unless-stopped
     depends_on:
       - db
-    volumes:
-      - ./backend:/var/www/backend
-      - ./frontend:/var/www/html
     environment:
       DB_HOST: db
       DB_NAME: kogebog
@@ -30,9 +27,6 @@ services:
       DB_PASS: kogebog_pass
     ports:
       - "8080:80"
-    command: >
-      bash -c "docker-php-ext-install pdo pdo_mysql &&
-               apache2-foreground"
 
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
