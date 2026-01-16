@@ -1,0 +1,51 @@
+version: "3.9"
+
+services:
+  db:
+    image: mariadb:11
+    container_name: kogebog-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: kogebog
+      MYSQL_USER: kogebog_user
+      MYSQL_PASSWORD: kogebog_pass
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  php:
+    image: php:8.2-apache
+    container_name: kogebog-php
+    restart: unless-stopped
+    depends_on:
+      - db
+    volumes:
+      - ./backend:/var/www/backend
+      - ./frontend:/var/www/html
+    environment:
+      DB_HOST: db
+      DB_NAME: kogebog
+      DB_USER: kogebog_user
+      DB_PASS: kogebog_pass
+    ports:
+      - "8080:80"
+    command: >
+      bash -c "docker-php-ext-install pdo pdo_mysql &&
+               apache2-foreground"
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: kogebog-phpmyadmin
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      PMA_HOST: db
+      PMA_USER: root
+      PMA_PASSWORD: rootpassword
+    ports:
+      - "8081:80"
+
+volumes:
+  db_data:

@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<title>Min Kogebog</title>
+<style>
+  body { margin:0; font-family: Arial, sans-serif; background:#f7f5f2; color:#333; display:flex; flex-direction:column; height:100vh; }
+  #topbar { display:flex; justify-content:space-between; align-items:center; padding:10px 20px; background:#fff; border-bottom:1px solid #ddd; }
+  #main { flex:1; display:flex; min-height:0; }
+  #sidebar { width:260px; background:#fff; border-right:1px solid #ddd; padding:20px; overflow-y:auto; }
+  #content { flex:1; padding:20px 30px; overflow-y:auto; }
+  button { cursor:pointer; }
+  .recipe-card { background:#fff; border-radius:10px; padding:15px; margin-bottom:15px; box-shadow:0 2px 6px rgba(0,0,0,0.08); display:flex; gap:15px; }
+  .recipe-card img { width:120px; height:120px; object-fit:cover; border-radius:8px; }
+  #view, #editor { background:#fff; padding:20px; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,0.1); margin-top:20px; display:none; }
+  input, textarea { width:100%; padding:8px; margin-top:5px; border-radius:5px; border:1px solid #ccc; }
+  label { margin-top:10px; display:block; font-weight:bold; }
+  .meta { font-size:12px; color:#777; }
+</style>
+</head>
+<body>
+<div id="topbar">
+  <div>Min Kogebog</div>
+  <div>
+    <button id="login-btn" onclick="openLogin()">Login</button>
+    <span id="user-info" style="display:none;">
+      <button onclick="toggleUserMenu()" id="user-menu-btn">👤 <span id="user-name"></span> ▼</button>
+      <div id="user-menu" style="display:none; position:absolute; right:20px; background:#fff; border:1px solid #ddd; border-radius:4px; box-shadow:0 2px 6px rgba(0,0,0,0.1);">
+        <button onclick="openChangePassword()">Skift kodeord</button>
+        <button onclick="openUserAdmin()" id="admin-btn" style="display:none;">Brugeradmin</button>
+        <button onclick="logout()">Log ud</button>
+      </div>
+    </span>
+  </div>
+</div>
+
+<div id="main">
+  <div id="sidebar">
+    <h3>Indholdsfortegnelse</h3>
+    <p><strong>Kategorier</strong></p>
+    <div onclick="setCategory('Brød')">Brød</div>
+    <div onclick="setCategory('Kødretter')">Kødretter</div>
+    <div onclick="setCategory('Vegetar')">Vegetarretter</div>
+    <div onclick="setCategory('Kage')">Brød & Kage</div>
+    <div onclick="setCategory('Sovs')">Sovse</div>
+    <p><strong>Årstider</strong></p>
+    <div onclick="setCategory('Sommer')">Sommer</div>
+    <div onclick="setCategory('Efterår')">Efterår</div>
+    <div onclick="setCategory('Vinter')">Vinter</div>
+    <div onclick="setCategory('Forår')">Forår</div>
+  </div>
+  <div id="content">
+    <h2>Opskrifter</h2>
+    <button id="add-btn" onclick="showEditor()" disabled>Tilføj opskrift (login kræves)</button>
+    <div id="list"></div>
+
+    <div id="view">
+      <h3 id="view-name"></h3>
+      <img id="view-img" style="max-width:300px; border-radius:10px;">
+      <p class="meta" id="view-owner"></p>
+      <p><strong>Ingredienser:</strong></p>
+      <p id="view-ingredients"></p>
+      <p><strong>Fremgangsmåde:</strong></p>
+      <p id="view-howto"></p>
+      <p><strong>Kilde:</strong> <span id="view-source"></span></p>
+      <p><strong>Kategorier:</strong> <span id="view-category"></span></p>
+      <button id="edit-btn" onclick="editCurrent()">Rediger</button>
+      <button id="delete-btn" onclick="deleteCurrent()">Slet</button>
+      <button onclick="closeView()">Luk</button>
+    </div>
+
+    <div id="editor">
+      <h3 id="editor-title">Tilføj opskrift</h3>
+      <label>Navn</label><input id="name">
+      <label>Billede URL</label><input id="image">
+      <label>Ingredienser (én per linje)</label><textarea id="ingredients"></textarea>
+      <label>Fremgangsmåde</label><textarea id="howto"></textarea>
+      <label>Kilde</label><input id="source">
+      <label>Kategorier (komma-separeret)</label><input id="category">
+      <button onclick="saveRecipe()">Gem</button>
+      <button onclick="cancelEdit()">Annuller</button>
+    </div>
+  </div>
+</div>
+
+<!-- Simple login / change password / user admin kan du bygge videre på med modals -->
+
+<script>
+const API_BASE = '/backend/api';
+let currentUser = null;
+let recipes = [];
+let activeCategory = null;
+let currentRecipeId = null;
+
+async function api(path, options = {}) {
+  const res = await fetch(API_BASE + path, {
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    ...options
+  });
+  if (!res.ok) throw await res.json().catch(() => ({ error: 'unknown' }));
+  return res.json();
+}
+
+async function loadMe() {
+  try {
+    const data = await api('/me.php');
+    currentUser = data.user;
+  } catch {
+    currentUser = null;
+  }
+  updateUserUI();
+}
+
+async function loadRecipes() {
+  const data = await api('/recipes.php');
+  recipes = data;
+  renderList();
+}
+
+function renderList() {
+  const list = document.getElementById('list');
+  list.innerHTML = '';
+  recipes
+    .filter(r => !activeCategory || (r.categories || []).includes(activeCategory))
+    .forEach(r => {
+      const div = document.createElement('div');
+      div.className = 'recipe-card';
+      div.innerHTML = `
+        <img src="${r.image || ''}">
+        <div>
+          <h4>${r.name}</h4>
+          <div class="meta">Af: ${r.created_by_name || 'ukendt'}</div>
+          <div class="meta">${(r.categories || []).join(', ')}</div>
+        </div>
+      `;
+      div.onclick = () => openView(r.id);
+      list.appendChild(div);
+    });
+}
+
+function setCategory(cat) {
+  activeCategory = cat;
+  document.getElementById('view').style.display = 'none';
+  document.getElementById('editor').style.display = 'none';
+  renderList();
+}
+
+function openView(id) {
+  const r = recipes.find(x => x.id == id);
+  if (!r) return;
+  currentRecipeId = id;
+  document.getElementById('view-name').textContent = r.name;
+  document.getElementById('view-img').src = r.image || '';
+  document.getElementById('view-owner').textContent = 'Af: ' + (r.created_by_name || 'ukendt');
+  document.getElementById('view-ingredients').innerHTML = (r.ingredients || []).join('<br>');
+  document.getElementById('view-howto').textContent = r.howto || '';
+  document.getElementById('view-source').textContent = r.source || '';
+  document.getElementById('view-category').textContent = (r.categories || []).join(', ');
+  document.getElementById('view').style.display = 'block';
+  document.getElementById('editor').style.display = 'none';
+  updateViewButtons(r);
+}
+
+function closeView() {
+  document.getElementById('view').style.display = 'none';
+}
+
+function showEditor() {
+  if (!currentUser) { alert('Login kræves'); return; }
+  currentRecipeId = null;
+  document.getElementById('editor-title').textContent = 'Tilføj opskrift';
+  document.getElementById('name').value = '';
+  document.getElementById('image').value = '';
+  document.getElementById('ingredients').value = '';
+  document.getElementById('howto').value = '';
+  document.getElementById('source').value = '';
+  document.getElementById('category').value = '';
+  document.getElementById('editor').style.display = 'block';
+  document.getElementById('view').style.display = 'none';
+}
+
+function cancelEdit() {
+  document.getElementById('editor').style.display = 'none';
+}
+
+async function saveRecipe() {
+  if (!currentUser) { alert('Login kræves'); return; }
+  const body = {
+    name: document.getElementById('name').value,
+    image: document.getElementById('image').value,
+    ingredients: document.getElementById('ingredients').value.split('\n').filter(Boolean),
+    howto: document.getElementById('howto').value,
+    source: document.getElementById('source').value,
+    categories: document.getElementById('category').value.split(',').map(s => s.trim()).filter(Boolean)
+  };
+  try {
+    if (currentRecipeId == null) {
+      await api('/recipes.php', { method: 'POST', body: JSON.stringify(body) });
+    } else {
+      await api('/recipes.php?id=' + currentRecipeId, { method: 'PUT', body: JSON.stringify(body) });
+    }
+    await loadRecipes();
+    cancelEdit();
+  } catch (e) {
+    alert('Fejl ved gemning');
+  }
+}
+
+function editCurrent() {
+  if (!currentUser || currentRecipeId == null) return;
+  const r = recipes.find(x => x.id == currentRecipeId);
+  if (!r) return;
+  document.getElementById('editor-title').textContent = 'Rediger opskrift';
+  document.getElementById('name').value = r.name;
+  document.getElementById('image').value = r.image || '';
+  document.getElementById('ingredients').value = (r.ingredients || []).join('\n');
+  document.getElementById('howto').value = r.howto || '';
+  document.getElementById('source').value = r.source || '';
+  document.getElementById('category').value = (r.categories || []).join(', ');
+  document.getElementById('editor').style.display = 'block';
+  document.getElementById('view').style.display = 'none';
+}
+
+async function deleteCurrent() {
+  if (!currentUser || currentRecipeId == null) return;
+  if (!confirm('Slet opskrift?')) return;
+  try {
+    await api('/recipes.php?id=' + currentRecipeId, { method: 'DELETE' });
+    await loadRecipes();
+    closeView();
+  } catch {
+    alert('Fejl ved sletning');
+  }
+}
+
+function updateUserUI() {
+  const loginBtn = document.getElementById('login-btn');
+  const userInfo = document.getElementById('user-info');
+  const addBtn = document.getElementById('add-btn');
+  const adminBtn = document.getElementById('admin-btn');
+  if (currentUser) {
+    loginBtn.style.display = 'none';
+    userInfo.style.display = 'inline';
+    document.getElementById('user-name').textContent = currentUser.username;
+    addBtn.disabled = false;
+    adminBtn.style.display = currentUser.is_admin ? 'block' : 'none';
+  } else {
+    loginBtn.style.display = 'inline';
+    userInfo.style.display = 'none';
+    addBtn.disabled = true;
+  }
+}
+
+function updateViewButtons(r) {
+  const editBtn = document.getElementById('edit-btn');
+  const deleteBtn = document.getElementById('delete-btn');
+  if (!currentUser) {
+    editBtn.style.display = 'none';
+    deleteBtn.style.display = 'none';
+    return;
+  }
+  const can = currentUser.is_admin || currentUser.username === r.created_by_name;
+  editBtn.style.display = can ? 'inline-block' : 'none';
+  deleteBtn.style.display = can ? 'inline-block' : 'none';
+}
+
+/* Login / logout – her er en simpel prompt-version, du kan senere lave rigtige modals */
+
+async function openLogin() {
+  const username = prompt('Brugernavn:');
+  const password = prompt('Kodeord:');
+  if (!username || !password) return;
+  try {
+    const data = await api('/login.php', { method: 'POST', body: JSON.stringify({ username, password }) });
+    currentUser = data;
+    updateUserUI();
+  } catch {
+    alert('Login fejlede');
+  }
+}
+
+async function logout() {
+  await fetch(API_BASE + '/login.php', { method: 'DELETE', credentials: 'include' }).catch(()=>{});
+  currentUser = null;
+  updateUserUI();
+}
+
+function toggleUserMenu() {
+  const m = document.getElementById('user-menu');
+  m.style.display = m.style.display === 'block' ? 'none' : 'block';
+}
+
+function openChangePassword() {
+  const oldPw = prompt('Nuværende kodeord:');
+  const newPw = prompt('Nyt kodeord:');
+  if (!oldPw || !newPw) return;
+  api('/change_password.php', { method: 'POST', body: JSON.stringify({ old_password: oldPw, new_password: newPw }) })
+    .then(() => alert('Kodeord ændret'))
+    .catch(() => alert('Fejl ved skift af kodeord'));
+}
+
+function openUserAdmin() {
+  if (!currentUser || !currentUser.is_admin) return;
+  alert('Brugeradmin UI kan laves som næste skridt – backend /api/users.php er klar.');
+}
+
+loadMe().then(loadRecipes);
+</script>
+</body>
+</html>
